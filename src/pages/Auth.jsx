@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { Scale, Mail, Lock, Chrome, ShieldCheck } from 'lucide-react';
 import Button from '../components/ui/Button';
+import Logo from '../components/ui/Logo';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -109,11 +110,9 @@ export default function Auth() {
         <div className="p-8 md:p-10">
           <div className="text-center mb-8">
             <Link to="/" className="inline-flex items-center gap-2 mb-6 group">
-              <img
-                src="/logo.jpg"
-                alt="LegalLink"
-                className="w-14 h-14 rounded-2xl object-cover shadow-lg group-hover:scale-105 transition-transform duration-300"
-              />
+              <span className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-700/60 inline-flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform duration-300">
+                <Logo className="w-9 h-9" color="text-[var(--color-primary)] dark:text-blue-300" />
+              </span>
             </Link>
             <h2 className="text-3xl font-serif font-bold text-slate-900 dark:text-white mb-2">
               {isLogin ? t('auth.welcome') : t('auth.register_title')}

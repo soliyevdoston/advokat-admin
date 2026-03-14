@@ -72,6 +72,124 @@
   }
 }
 
+/* Admin dashboard originally uses dark-first utility classes.
+   These scoped overrides make light mode visibly switch in admin pages. */
+:root:not(.dark) .admin-dashboard-shell {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .bg-slate-950 {
+  background-color: #f8fafc !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .bg-slate-900 {
+  background-color: #ffffff !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .bg-slate-800 {
+  background-color: #f1f5f9 !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .bg-slate-900\/40,
+:root:not(.dark) .admin-dashboard-shell .bg-slate-900\/30,
+:root:not(.dark) .admin-dashboard-shell .bg-slate-900\/20 {
+  background-color: #eff6ff !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .border-slate-900,
+:root:not(.dark) .admin-dashboard-shell .border-slate-800,
+:root:not(.dark) .admin-dashboard-shell .border-slate-700 {
+  border-color: #e2e8f0 !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .text-white {
+  color: #0f172a !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .bg-blue-600,
+:root:not(.dark) .admin-dashboard-shell .bg-blue-700,
+:root:not(.dark) .admin-dashboard-shell .bg-red-600,
+:root:not(.dark) .admin-dashboard-shell .bg-red-700 {
+  color: #ffffff !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .bg-blue-600 *,
+:root:not(.dark) .admin-dashboard-shell .bg-blue-700 *,
+:root:not(.dark) .admin-dashboard-shell .bg-red-600 *,
+:root:not(.dark) .admin-dashboard-shell .bg-red-700 * {
+  color: #ffffff !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .text-slate-400,
+:root:not(.dark) .admin-dashboard-shell .text-slate-300,
+:root:not(.dark) .admin-dashboard-shell .text-slate-500 {
+  color: #64748b !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .text-blue-300 {
+  color: #1d4ed8 !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .text-emerald-300 {
+  color: #047857 !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .text-amber-300 {
+  color: #b45309 !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .bg-red-950\/30 {
+  background-color: #fef2f2 !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .text-red-300 {
+  color: #b91c1c !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .bg-green-900\/20 {
+  background-color: #ecfdf5 !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .text-green-300 {
+  color: #047857 !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .hover\:bg-slate-800:hover,
+:root:not(.dark) .admin-dashboard-shell .hover\:bg-slate-700:hover {
+  background-color: #f1f5f9 !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .hover\:text-red-200:hover {
+  color: #b91c1c !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .bg-slate-900 .bg-slate-950 {
+  background-color: #f8fafc !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .bg-slate-950 input,
+:root:not(.dark) .admin-dashboard-shell .bg-slate-950 textarea,
+:root:not(.dark) .admin-dashboard-shell .bg-slate-950 select,
+:root:not(.dark) .admin-dashboard-shell .bg-slate-900 input,
+:root:not(.dark) .admin-dashboard-shell .bg-slate-900 textarea,
+:root:not(.dark) .admin-dashboard-shell .bg-slate-900 select {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell .bg-slate-950 input::placeholder,
+:root:not(.dark) .admin-dashboard-shell .bg-slate-950 textarea::placeholder,
+:root:not(.dark) .admin-dashboard-shell .bg-slate-900 input::placeholder,
+:root:not(.dark) .admin-dashboard-shell .bg-slate-900 textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+:root:not(.dark) .admin-dashboard-shell pre {
+  background-color: #f8fafc !important;
+  color: #334155 !important;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }

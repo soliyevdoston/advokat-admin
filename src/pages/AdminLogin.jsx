@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 
 export default function AdminLogin() {
   const navigate = useNavigate();
-  const { user, login, logout } = useAuth();
+  const { user, login, logout, localFallbackEnabled } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -60,6 +60,14 @@ export default function AdminLogin() {
             Bu panel orqali foydalanuvchilar, advokatlar, chatlar va sayt kontenti boshqariladi.
             Faqat admin akkount uchun ruxsat beriladi.
           </p>
+
+          {localFallbackEnabled && (
+            <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-blue-100">
+              <p className="font-semibold mb-1">Frontend fallback admin</p>
+              <p>Email: <span className="font-bold">admin@legallink.uz</span></p>
+              <p>Parol: <span className="font-bold">admin12345</span></p>
+            </div>
+          )}
         </div>
 
         <div className="p-8 lg:p-10">

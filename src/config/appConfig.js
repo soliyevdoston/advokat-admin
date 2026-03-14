@@ -6,7 +6,7 @@ const rawSocketBase = import.meta.env.VITE_SOCKET_BASE_URL || '';
 export const API_BASE_URL = normalizeBaseUrl(rawBase);
 
 export const ENABLE_LOCAL_FALLBACK =
-  String(import.meta.env.VITE_ENABLE_LOCAL_FALLBACK || 'false').toLowerCase() === 'true';
+  String(import.meta.env.VITE_ENABLE_LOCAL_FALLBACK || 'true').toLowerCase() === 'true';
 
 export const DEV_BACKEND_HINT =
   import.meta.env.VITE_BACKEND_HINT || 'Set VITE_API_BASE_URL in your .env file';

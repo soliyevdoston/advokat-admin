@@ -2,8 +2,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   AlertCircle,
+  BellRing,
   BookOpen,
   CheckCircle2,
+  ChevronRight,
   CreditCard,
   FileCheck2,
   FileText,
@@ -13,14 +15,17 @@ import {
   Newspaper,
   PlusCircle,
   RefreshCw,
+  Sparkles,
   ShieldAlert,
   ShieldCheck,
   Settings2,
+  TimerReset,
   Trash2,
   UserPlus,
   UserRound,
   Users,
   UserSquare2,
+  Workflow,
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -94,6 +99,12 @@ const mapCount = (payload, keyCandidates = []) => {
   return 0;
 };
 
+const toTimestamp = (value) => {
+  if (!value) return 0;
+  const ts = new Date(value).getTime();
+  return Number.isFinite(ts) ? ts : 0;
+};
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const {
@@ -109,6 +120,8 @@ export default function AdminDashboard() {
   } = useAuth();
 
   const [section, setSection] = useState('overview');
+  const [globalQuery, setGlobalQuery] = useState('');
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
 
   const [usersList, setUsersList] = useState([]);
   const [userSearch, setUserSearch] = useState('');
@@ -311,6 +324,7 @@ export default function AdminDashboard() {
       setConversations(Array.isArray(chats) ? chats : []);
 
       await Promise.all([loadLawyers(), loadContentStats(), loadOpsPanels(), loadServerStatus()]);
+      setLastSyncedAt(new Date());
     } catch (err) {
       setError(safeError(err, "Ma'lumotlarni yuklashda xatolik yuz berdi"));
     } finally {
@@ -429,6 +443,72 @@ export default function AdminDashboard() {
     };
   }, [conversations, lawyers.length, usersList]);
 
+  const opsStats = useMemo(() => {
+    const pendingApplications = applications.filter((item) => !String(item?.status || '').toLowerCase().includes('resolved')).length;
+    const activeSubscriptions = subscriptions.filter((item) => String(item?.status || '').toLowerCase().includes('active')).length;
+    const todayNewUsers = usersList.filter((usr) => {
+      const createdAt = toTimestamp(usr?.created_at || usr?.createdAt);
+      if (!createdAt) return false;
+      const now = new Date();
+      const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      return createdAt >= dayStart;
+    }).length;
+
+    return { pendingApplications, activeSubscriptions, todayNewUsers };
+  }, [applications, subscriptions, usersList]);
+
+  const sectionLabel = useMemo(
+    () => NAV_ITEMS.find((item) => item.key === section)?.label || 'Dashboard',
+    [section]
+  );
+
+  const healthScore = useMemo(() => {
+    const checks = [
+      serverOnline === true,
+      !error,
+      !opsError,
+      authToken?.length > 10,
+      apiBase?.startsWith('http'),
+    ];
+    const ok = checks.filter(Boolean).length;
+    return Math.round((ok / checks.length) * 100);
+  }, [serverOnline, error, opsError, authToken, apiBase]);
+
+  const recentActivity = useMemo(() => {
+    const items = [];
+
+    usersList.slice(-8).forEach((usr) => {
+      items.push({
+        id: `usr_${usr.id || usr.email}`,
+        type: 'Foydalanuvchi',
+        text: `${usr.email || 'Noma\'lum user'} tizimga qo‘shildi`,
+        at: usr.created_at || usr.createdAt,
+      });
+    });
+
+    conversations.slice(-8).forEach((conv) => {
+      items.push({
+        id: `conv_${conv.id || conv.conversationId || Math.random()}`,
+        type: 'Chat',
+        text: `${conv.userEmail || conv.receiver || conv.participant || 'Mijoz'} bilan suhbat yangilandi`,
+        at: conv.updated_at || conv.updatedAt || conv.created_at || conv.createdAt,
+      });
+    });
+
+    applications.slice(-8).forEach((app, idx) => {
+      items.push({
+        id: `app_${app.id || app._id || idx}`,
+        type: 'Ariza',
+        text: `${app.title || app.subject || 'Ariza'} qabul qilindi`,
+        at: app.created_at || app.createdAt || app.submittedAt,
+      });
+    });
+
+    return items
+      .sort((a, b) => toTimestamp(b.at) - toTimestamp(a.at))
+      .slice(0, 7);
+  }, [usersList, conversations, applications]);
+
   const filteredUsers = useMemo(() => {
     const query = userSearch.trim().toLowerCase();
     if (!query) return usersList;
@@ -468,7 +548,7 @@ export default function AdminDashboard() {
 
   const handleLogout = () => {
     logout();
-    navigate('/admin/login', { replace: true });
+    navigate('/admin', { replace: true });
   };
 
   const handleStartChat = async (event) => {
@@ -505,8 +585,42 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleGlobalCommand = (event) => {
+    event.preventDefault();
+    const query = globalQuery.trim().toLowerCase();
+    if (!query) return;
+
+    const navHit = NAV_ITEMS.find(
+      (item) => item.label.toLowerCase().includes(query) || item.key.toLowerCase().includes(query)
+    );
+
+    if (navHit) {
+      setSection(navHit.key);
+      return;
+    }
+
+    if (query.includes('@') || query.includes('user')) {
+      setSection('users');
+      setUserSearch(globalQuery.trim());
+      return;
+    }
+
+    if (query.includes('advokat') || query.includes('lawyer')) {
+      setSection('lawyers');
+      setLawyerSearch(globalQuery.trim());
+      return;
+    }
+
+    if (query.includes('chat')) {
+      setSection('chats');
+      return;
+    }
+
+    setSection('overview');
+  };
+
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="admin-dashboard-shell min-h-screen bg-slate-950 text-white">
       <div className="max-w-[1440px] mx-auto px-4 md:px-6 lg:px-8 py-6 md:py-8">
         <div className="flex flex-col lg:flex-row gap-6">
           <aside className="lg:w-72 shrink-0">
@@ -561,6 +675,39 @@ export default function AdminDashboard() {
           </aside>
 
           <section className="flex-1 min-w-0 space-y-6">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900 p-4 md:p-5">
+              <div className="flex flex-col xl:flex-row gap-4 xl:items-center xl:justify-between">
+                <div>
+                  <div className="inline-flex items-center gap-2 rounded-full border border-blue-800/60 bg-blue-900/20 px-3 py-1 text-xs text-blue-300">
+                    <Sparkles size={13} />
+                    LegalLink Control Tower
+                  </div>
+                  <h2 className="mt-2 text-xl md:text-2xl font-bold">{sectionLabel}</h2>
+                  <p className="text-sm text-slate-400 mt-1">
+                    {lastSyncedAt
+                      ? `Oxirgi yangilanish: ${new Date(lastSyncedAt).toLocaleTimeString()}`
+                      : 'Yuklanmoqda...'}
+                  </p>
+                </div>
+
+                <form onSubmit={handleGlobalCommand} className="flex flex-col sm:flex-row gap-2 xl:min-w-[520px]">
+                  <InputDark
+                    label="Tezkor buyruq: users, chats, lawyers yoki email yozing"
+                    value={globalQuery}
+                    onChange={setGlobalQuery}
+                    placeholder="Masalan: chats yoki test@gmail.com"
+                  />
+                  <button
+                    type="submit"
+                    className="sm:self-end inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2.5 text-sm font-semibold"
+                  >
+                    <Workflow size={14} />
+                    O‘tish
+                  </button>
+                </form>
+              </div>
+            </div>
+
             {error && (
               <div className="rounded-2xl border border-red-800 bg-red-950/30 text-red-300 px-4 py-3 text-sm flex items-center gap-2">
                 <AlertCircle size={16} /> {error}
@@ -575,6 +722,12 @@ export default function AdminDashboard() {
                   <StatCard label="Mijozlar" value={stats.totalClients} icon={UserRound} />
                   <StatCard label="Advokatlar" value={stats.totalLawyers} icon={UserSquare2} />
                   <StatCard label="Ochiq chat" value={stats.openConversations} icon={MessageCircleMore} />
+                </div>
+
+                <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <StatCard label="Yangi user (bugun)" value={opsStats.todayNewUsers} icon={UserPlus} />
+                  <StatCard label="Jarayondagi ariza" value={opsStats.pendingApplications} icon={FileCheck2} />
+                  <StatCard label="Faol obuna" value={opsStats.activeSubscriptions} icon={CreditCard} />
                 </div>
 
                 <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4 flex items-center justify-between gap-4">
@@ -602,6 +755,62 @@ export default function AdminDashboard() {
                   <QuickLinkCard title="Foydalanuvchilar" desc="Ro'yxatdan o'tgan userlarni ko'rish" to="#" onClick={() => setSection('users')} />
                   <QuickLinkCard title="Chat markazi" desc="Mijoz va advokatlar yozishmalarini nazorat qilish" to="#" onClick={() => setSection('chats')} />
                   <QuickLinkCard title="Sayt kontenti" desc="Modda, hujjat va yangilik statistikasi" to="#" onClick={() => setSection('content')} />
+                </div>
+
+                <div className="grid xl:grid-cols-3 gap-4">
+                  <div className="xl:col-span-2 rounded-2xl border border-slate-800 bg-slate-900 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold">So‘nggi faollik</h3>
+                      <span className="text-xs text-slate-400">Real-time monitoring</span>
+                    </div>
+                    {recentActivity.length === 0 ? (
+                      <EmptyBox text="Hozircha faoliyat loglari yo‘q" dark />
+                    ) : (
+                      <div className="space-y-2.5">
+                        {recentActivity.map((item) => (
+                          <div key={item.id} className="flex items-start gap-3 rounded-xl border border-slate-800 bg-slate-950 p-3">
+                            <div className="w-8 h-8 rounded-lg bg-blue-900/25 text-blue-300 flex items-center justify-center">
+                              <BellRing size={14} />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs text-blue-300">{item.type}</p>
+                              <p className="text-sm text-slate-200 truncate">{item.text}</p>
+                              <p className="text-xs text-slate-500 mt-0.5">
+                                {item.at ? new Date(item.at).toLocaleString() : 'Vaqt noma\'lum'}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+                    <h3 className="font-semibold">Tizim sog‘ligi</h3>
+                    <p className="text-xs text-slate-400 mt-1">Integratsiyalar va backend holati</p>
+                    <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-3">
+                      <p className="text-xs text-slate-400">Health score</p>
+                      <p className="text-3xl font-bold mt-1">{healthScore}%</p>
+                      <div className="mt-3 h-2 rounded-full bg-slate-800 overflow-hidden">
+                        <div
+                          className={`h-full ${healthScore >= 80 ? 'bg-emerald-500' : healthScore >= 50 ? 'bg-amber-400' : 'bg-red-500'}`}
+                          style={{ width: `${healthScore}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-4 space-y-2 text-sm">
+                      <StatusLine ok={serverOnline === true} text="Ping endpoint ishlayapti" />
+                      <StatusLine ok={!opsError} text="Ariza/obuna endpointlari o‘qilyapti" />
+                      <StatusLine ok={Boolean(authToken)} text="Admin sessiya aktiv" />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSection('settings')}
+                      className="mt-4 w-full inline-flex items-center justify-center gap-1 rounded-xl border border-slate-700 px-3 py-2 text-sm hover:bg-slate-800"
+                    >
+                      Sozlamalarni ochish <ChevronRight size={14} />
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -1066,5 +1275,17 @@ function TextAreaDark({ label, value, onChange }) {
         className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40"
       />
     </label>
+  );
+}
+
+function StatusLine({ ok, text }) {
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-2">
+      <span className="text-slate-300">{text}</span>
+      <span className={`inline-flex items-center gap-1 text-xs font-semibold ${ok ? 'text-emerald-300' : 'text-amber-300'}`}>
+        {ok ? <CheckCircle2 size={13} /> : <TimerReset size={13} />}
+        {ok ? 'OK' : 'Tekshirish'}
+      </span>
+    </div>
   );
 }

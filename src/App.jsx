@@ -17,6 +17,7 @@ import Dashboard from './pages/Dashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminLogin from './pages/AdminLogin';
 import ConstitutionPage from './pages/ConstitutionPage';
+import { useAuth } from './context/AuthContext';
 
 import { LanguageProvider } from './context/LanguageContext';
 import { ThemeProvider } from './context/ThemeContext';
@@ -41,7 +42,10 @@ function App() {
 
 function AppContent() {
   const location = useLocation();
-  const isAdminRoute = location.pathname.startsWith('/admin');
+  const host = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
+  const firstLabel = host.split('.')[0] || '';
+  const isAdminHost = firstLabel === 'admin';
+  const isAdminRoute = isAdminHost || location.pathname.startsWith('/admin') || location.pathname === '/';
 
   return (
     <div className={`min-h-screen bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 ${isAdminRoute ? '' : 'flex flex-col'} transition-colors duration-300`}>
@@ -49,8 +53,17 @@ function AppContent() {
 
       <main className={isAdminRoute ? '' : 'flex-grow'}>
         <Routes>
+          {isAdminHost ? (
+            <>
+              <Route path="/" element={<AdminPortal />} />
+              <Route path="/admin" element={<AdminPortal />} />
+              <Route path="/admin/login" element={<AdminPortal />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </>
+          ) : (
+            <>
           {/* Ochiq sahifalar */}
-          <Route path="/" element={<Home />} />
+          <Route path="/" element={<AdminPortal />} />
           <Route path="/lawyers" element={<Lawyers />} />
           <Route path="/news" element={<NewsPage />} />
           <Route path="/news/:id" element={<NewsPage />} />
@@ -61,7 +74,7 @@ function AppContent() {
 
           {/* Auth */}
           <Route path="/auth" element={<Auth />} />
-          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/admin/login" element={<Navigate to="/admin" replace />} />
 
           {/* Himoyalangan user kabinet */}
           <Route
@@ -73,25 +86,33 @@ function AppContent() {
             }
           />
 
-          {/* Himoyalangan admin panel */}
+          {/* Admin portal: login va dashboard bitta oqimda */}
           <Route
             path="/admin"
-            element={
-              <PrivateRoute requireRole="admin" redirectTo="/admin/login" unauthorizedTo="/dashboard">
-                <AdminDashboard />
-              </PrivateRoute>
-            }
+            element={<AdminPortal />}
           />
 
           {/* Noma'lum URL → bosh sahifa */}
           <Route path="*" element={<Navigate to="/" replace />} />
+            </>
+          )}
         </Routes>
       </main>
 
       {!isAdminRoute && <Footer />}
-      {!isAdminRoute && <ThemeSwitcher />}
+      <ThemeSwitcher />
     </div>
   );
+}
+
+function AdminPortal() {
+  const { user } = useAuth();
+
+  if (user?.role === 'admin') {
+    return <AdminDashboard />;
+  }
+
+  return <AdminLogin />;
 }
 
 export default App;
