@@ -39,6 +39,8 @@ const NAV_ITEMS = [
   { key: 'chats', label: 'Chat markazi', icon: MessageCircleMore },
   { key: 'applications', label: 'Arizalar', icon: FileCheck2 },
   { key: 'subscriptions', label: 'Obunalar', icon: CreditCard },
+  { key: 'funnel', label: 'Lead Funnel', icon: Activity },
+  { key: 'audit', label: 'Audit Log', icon: BellRing },
   { key: 'settings', label: 'Sozlamalar', icon: Settings2 },
   { key: 'content', label: 'Sayt kontenti', icon: FileText },
 ];
@@ -105,6 +107,23 @@ const toTimestamp = (value) => {
   return Number.isFinite(ts) ? ts : 0;
 };
 
+const ADMIN_AUDIT_KEY = 'legallink_admin_audit_v1';
+const readAuditLogs = () => {
+  try {
+    const raw = localStorage.getItem(ADMIN_AUDIT_KEY);
+    const logs = raw ? JSON.parse(raw) : [];
+    return Array.isArray(logs) ? logs : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeAuditLog = (entry) => {
+  const next = [entry, ...readAuditLogs()].slice(0, 120);
+  localStorage.setItem(ADMIN_AUDIT_KEY, JSON.stringify(next));
+  return next;
+};
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const {
@@ -157,12 +176,14 @@ export default function AdminDashboard() {
   const [platformSettings, setPlatformSettings] = useState(null);
   const [opsLoading, setOpsLoading] = useState(false);
   const [opsError, setOpsError] = useState('');
+  const [opsNotice, setOpsNotice] = useState('');
 
   const [chatTarget, setChatTarget] = useState('');
   const [chatMessage, setChatMessage] = useState('');
   const [chatSending, setChatSending] = useState(false);
   const [chatError, setChatError] = useState('');
   const [chatSuccess, setChatSuccess] = useState('');
+  const [auditLogs, setAuditLogs] = useState(() => readAuditLogs());
 
   const buildUrl = useCallback((path) => `${apiBase}${path}`, [apiBase]);
 
@@ -219,6 +240,31 @@ export default function AdminDashboard() {
       throw lastErr || new Error('Endpoint topilmadi');
     },
     [apiFetch]
+  );
+
+  const pushAuditLog = useCallback(
+    async ({ action, target, detail }) => {
+      const entry = {
+        id: `audit_${Date.now()}_${Math.random().toString(16).slice(2, 7)}`,
+        action,
+        actor: user?.email || 'admin',
+        target: String(target || '-'),
+        detail: detail || '-',
+        createdAt: new Date().toISOString(),
+      };
+
+      setAuditLogs(writeAuditLog(entry));
+
+      try {
+        await requestAny(
+          ['/audit-logs', '/api/audit-logs', '/admin/audit-logs', '/logs/audit'],
+          { method: 'POST', body: entry, auth: true }
+        );
+      } catch {
+        // Backend endpoint mavjud bo'lmasa local audit ishlashda davom etadi.
+      }
+    },
+    [requestAny, user?.email]
   );
 
   const loadLawyers = useCallback(async () => {
@@ -347,6 +393,11 @@ export default function AdminDashboard() {
     try {
       await createAdmin(newAdminEmail.trim(), newAdminPassword.trim());
       setCreateSuccess('Admin muvaffaqiyatli yaratildi');
+      await pushAuditLog({
+        action: 'admin_created',
+        target: newAdminEmail.trim(),
+        detail: 'Yangi admin yaratildi',
+      });
       setNewAdminEmail('');
       setNewAdminPassword('');
       await fetchData();
@@ -403,6 +454,11 @@ export default function AdminDashboard() {
       setLawyers((prev) => [created, ...prev.filter((item) => String(item.id) !== String(created.id))]);
       setLawyerForm(EMPTY_LAWYER_FORM);
       setLawyerSuccess('Advokat muvaffaqiyatli qo\'shildi');
+      await pushAuditLog({
+        action: 'lawyer_created',
+        target: created.email || created.id || created.name,
+        detail: `${created.name} advokat qo'shildi`,
+      });
     } catch (err) {
       setLawyerError(safeError(err, 'Advokat qo\'shishda xatolik yuz berdi'));
     } finally {
@@ -420,6 +476,11 @@ export default function AdminDashboard() {
       await requestAny([`/lawyers/${id}`, `/api/lawyers/${id}`], {
         method: 'DELETE',
         auth: true,
+      });
+      await pushAuditLog({
+        action: 'lawyer_deleted',
+        target: String(id),
+        detail: 'Advokat o\'chirildi',
       });
       setLawyers((prev) => prev.filter((item) => String(item.id) !== String(id)));
       setLawyerSuccess('Advokat o\'chirildi');
@@ -546,7 +607,54 @@ export default function AdminDashboard() {
     return Array.from(targets).filter(Boolean);
   }, [lawyers, usersList]);
 
+  const funnel = useMemo(() => {
+    const visitorsInterested = opsStats.todayNewUsers + conversations.length;
+    const registeredUsers = usersList.filter((u) => u.role !== 'admin').length;
+    const startedChats = conversations.length;
+    const paidUsers = subscriptions.filter((s) => String(s.status || '').toLowerCase().includes('active')).length;
+    const safePct = (a, b) => (b > 0 ? `${Math.round((a / b) * 100)}%` : '0%');
+
+    return {
+      visitorsInterested,
+      registeredUsers,
+      startedChats,
+      paidUsers,
+      step1To2: safePct(registeredUsers, visitorsInterested || 1),
+      step2To3: safePct(startedChats, registeredUsers || 1),
+      step3To4: safePct(paidUsers, startedChats || 1),
+    };
+  }, [conversations.length, opsStats.todayNewUsers, subscriptions, usersList]);
+
+  const updateApplicationStatus = (id, status) => {
+    setApplications((prev) =>
+      prev.map((item) => (String(item.id || item._id) === String(id) ? { ...item, status } : item))
+    );
+    setOpsNotice(`Ariza holati yangilandi: ${status}`);
+    void pushAuditLog({
+      action: 'application_status_changed',
+      target: String(id),
+      detail: `Ariza holati -> ${status}`,
+    });
+  };
+
+  const updateSubscriptionStatus = (id, status) => {
+    setSubscriptions((prev) =>
+      prev.map((item) => (String(item.id || item._id) === String(id) ? { ...item, status } : item))
+    );
+    setOpsNotice(`Obuna holati yangilandi: ${status}`);
+    void pushAuditLog({
+      action: 'subscription_status_changed',
+      target: String(id),
+      detail: `Obuna holati -> ${status}`,
+    });
+  };
+
   const handleLogout = () => {
+    void pushAuditLog({
+      action: 'admin_logout',
+      target: 'session',
+      detail: 'Admin tizimdan chiqdi',
+    });
     logout();
     navigate('/admin', { replace: true });
   };
@@ -576,6 +684,11 @@ export default function AdminDashboard() {
       const conversationId = makeConversationId('admin', target);
       await sendSupportMessage({ conversationId, text: message, receiver: target });
       setChatSuccess('Xabar yuborildi. Chat bo‘limida suhbatni ko‘rasiz.');
+      await pushAuditLog({
+        action: 'chat_message_sent',
+        target,
+        detail: 'Admin yangi xabar yubordi',
+      });
       setChatMessage('');
       await fetchData();
     } catch (err) {
@@ -756,6 +869,8 @@ export default function AdminDashboard() {
                   <QuickLinkCard title="Chat markazi" desc="Mijoz va advokatlar yozishmalarini nazorat qilish" to="#" onClick={() => setSection('chats')} />
                   <QuickLinkCard title="Sayt kontenti" desc="Modda, hujjat va yangilik statistikasi" to="#" onClick={() => setSection('content')} />
                 </div>
+
+                {opsNotice && <AlertBox type="success" text={opsNotice} />}
 
                 <div className="grid xl:grid-cols-3 gap-4">
                   <div className="xl:col-span-2 rounded-2xl border border-slate-800 bg-slate-900 p-4">
@@ -1071,9 +1186,17 @@ export default function AdminDashboard() {
                             <td className="px-3 py-2.5">{item.title || item.subject || item.name || 'Nomsiz ariza'}</td>
                             <td className="px-3 py-2.5 text-slate-300">{item.userEmail || item.email || item.clientEmail || '-'}</td>
                             <td className="px-3 py-2.5">
-                              <span className="text-xs px-2 py-1 rounded-md bg-slate-800 text-slate-200">
-                                {item.status || 'jarayonda'}
-                              </span>
+                              <select
+                                className="text-xs rounded-md bg-slate-800 text-slate-200 border border-slate-700 px-2 py-1"
+                                value={item.status || 'jarayonda'}
+                                onChange={(event) => updateApplicationStatus(item.id || item._id, event.target.value)}
+                              >
+                                <option value="new">new</option>
+                                <option value="in_review">in_review</option>
+                                <option value="assigned">assigned</option>
+                                <option value="resolved">resolved</option>
+                                <option value="closed">closed</option>
+                              </select>
                             </td>
                           </tr>
                         ))}
@@ -1110,9 +1233,16 @@ export default function AdminDashboard() {
                             <td className="px-3 py-2.5">{item.userEmail || item.email || item.user || '-'}</td>
                             <td className="px-3 py-2.5">{item.plan || item.tariff || item.type || '-'}</td>
                             <td className="px-3 py-2.5">
-                              <span className={`text-xs px-2 py-1 rounded-md ${String(item.status || '').toLowerCase().includes('active') ? 'bg-emerald-900/30 text-emerald-300' : 'bg-slate-800 text-slate-300'}`}>
-                                {item.status || 'noma\'lum'}
-                              </span>
+                              <select
+                                className="text-xs rounded-md bg-slate-800 text-slate-200 border border-slate-700 px-2 py-1"
+                                value={item.status || 'unknown'}
+                                onChange={(event) => updateSubscriptionStatus(item.id || item._id, event.target.value)}
+                              >
+                                <option value="active">active</option>
+                                <option value="paused">paused</option>
+                                <option value="expired">expired</option>
+                                <option value="canceled">canceled</option>
+                              </select>
                             </td>
                             <td className="px-3 py-2.5 text-slate-300">
                               {item.expiresAt || item.expireDate || item.endDate || '-'}
@@ -1123,6 +1253,61 @@ export default function AdminDashboard() {
                     </table>
                   </div>
                 )}
+              </Panel>
+            )}
+
+            {section === 'funnel' && (
+              <Panel title="Lead Funnel" subtitle="Qiziqishdan to'lovgacha bo'lgan oqim">
+                <div className="grid md:grid-cols-4 gap-4">
+                  <FunnelCard title="1. Qiziqqanlar" value={funnel.visitorsInterested} helper="Bugungi qiziqish signallari" />
+                  <FunnelCard title="2. Ro'yxatdan o'tganlar" value={funnel.registeredUsers} helper={`Konversiya: ${funnel.step1To2}`} />
+                  <FunnelCard title="3. Chat boshlaganlar" value={funnel.startedChats} helper={`Konversiya: ${funnel.step2To3}`} />
+                  <FunnelCard title="4. To'lov qilganlar" value={funnel.paidUsers} helper={`Konversiya: ${funnel.step3To4}`} />
+                </div>
+                <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-4">
+                  <p className="font-semibold mb-2">Takliflar</p>
+                  <ul className="text-sm text-slate-300 space-y-1.5 list-disc pl-5">
+                    <li>1 dan 2 ga o‘tish past bo'lsa, registration oqimini qisqartiring.</li>
+                    <li>2 dan 3 ga o‘tish past bo'lsa, chat CTA va onboardingni kuchaytiring.</li>
+                    <li>3 dan 4 ga o‘tish past bo'lsa, tarif va ishonch bloklarini kuchaytiring.</li>
+                  </ul>
+                </div>
+              </Panel>
+            )}
+
+            {section === 'audit' && (
+              <Panel title="Audit Log" subtitle="Admin amallarini kuzatish">
+                {auditLogs.length === 0 ? (
+                  <EmptyBox text="Hozircha audit yozuvlari yo'q" dark />
+                ) : (
+                  <div className="overflow-x-auto rounded-2xl border border-slate-800">
+                    <table className="w-full text-sm">
+                      <thead className="text-slate-400 border-b border-slate-800 bg-slate-900">
+                        <tr>
+                          <th className="text-left px-3 py-2.5">Vaqt</th>
+                          <th className="text-left px-3 py-2.5">Amal</th>
+                          <th className="text-left px-3 py-2.5">Kim</th>
+                          <th className="text-left px-3 py-2.5">Target</th>
+                          <th className="text-left px-3 py-2.5">Izoh</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {auditLogs.map((log) => (
+                          <tr key={log.id} className="border-b border-slate-900">
+                            <td className="px-3 py-2.5 text-slate-400">{new Date(log.createdAt).toLocaleString()}</td>
+                            <td className="px-3 py-2.5">{log.action}</td>
+                            <td className="px-3 py-2.5 text-slate-300">{log.actor}</td>
+                            <td className="px-3 py-2.5 text-slate-300">{log.target}</td>
+                            <td className="px-3 py-2.5 text-slate-300">{log.detail}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <p className="text-xs text-slate-500 mt-3">
+                  Eslatma: hozircha loglar localStorage'da saqlanadi.
+                </p>
               </Panel>
             )}
 
@@ -1286,6 +1471,16 @@ function StatusLine({ ok, text }) {
         {ok ? <CheckCircle2 size={13} /> : <TimerReset size={13} />}
         {ok ? 'OK' : 'Tekshirish'}
       </span>
+    </div>
+  );
+}
+
+function FunnelCard({ title, value, helper }) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <p className="text-xs text-slate-400 uppercase tracking-wide">{title}</p>
+      <p className="text-3xl font-bold mt-1">{value}</p>
+      <p className="text-sm text-slate-400 mt-1">{helper}</p>
     </div>
   );
 }
