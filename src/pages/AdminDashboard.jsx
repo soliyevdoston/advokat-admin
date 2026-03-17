@@ -59,6 +59,7 @@ const EMPTY_LAWYER_FORM = {
   image: '',
   languages: "O'zbek",
   bio: '',
+  loginPassword: '',
 };
 
 const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=800';
@@ -107,7 +108,24 @@ const toTimestamp = (value) => {
   return Number.isFinite(ts) ? ts : 0;
 };
 
+const LOCAL_APPLICATIONS_KEY = 'legallink_user_applications_v1';
+const LOCAL_SUBSCRIPTIONS_KEY = 'legallink_user_subscriptions_v1';
+
+const readJSON = (key, fallback) => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const writeJSON = (key, value) => {
+  localStorage.setItem(key, JSON.stringify(value));
+};
+
 const ADMIN_AUDIT_KEY = 'legallink_admin_audit_v1';
+const SUPPORT_APPROVALS_KEY = 'advokat_support_approvals_v1';
 const readAuditLogs = () => {
   try {
     const raw = localStorage.getItem(ADMIN_AUDIT_KEY);
@@ -117,6 +135,8 @@ const readAuditLogs = () => {
     return [];
   }
 };
+
+const readSupportApprovals = () => readJSON(SUPPORT_APPROVALS_KEY, {});
 
 const writeAuditLog = (entry) => {
   const next = [entry, ...readAuditLogs()].slice(0, 120);
@@ -133,8 +153,10 @@ export default function AdminDashboard() {
     logout,
     getAllUsers,
     createAdmin,
+    createLawyerAccount,
     listSupportConversations,
     sendSupportMessage,
+    setSupportConversationApproval,
     safeError,
   } = useAuth();
 
@@ -336,17 +358,39 @@ export default function AdminDashboard() {
       const subscriptionsPayload = subscriptionsRes.status === 'fulfilled' ? subscriptionsRes.value : [];
       const settingsPayload = settingsRes.status === 'fulfilled' ? settingsRes.value : null;
 
-      setApplications(
-        toArray(applicationsPayload).length
-          ? toArray(applicationsPayload)
-          : (applicationsPayload?.applications || applicationsPayload?.documents || applicationsPayload?.items || applicationsPayload?.data || [])
-      );
-      setSubscriptions(
-        toArray(subscriptionsPayload).length
-          ? toArray(subscriptionsPayload)
-          : (subscriptionsPayload?.subscriptions || subscriptionsPayload?.items || subscriptionsPayload?.data || [])
-      );
+      const remoteApplications = toArray(applicationsPayload).length
+        ? toArray(applicationsPayload)
+        : (applicationsPayload?.applications || applicationsPayload?.documents || applicationsPayload?.items || applicationsPayload?.data || []);
+      const remoteSubscriptions = toArray(subscriptionsPayload).length
+        ? toArray(subscriptionsPayload)
+        : (subscriptionsPayload?.subscriptions || subscriptionsPayload?.items || subscriptionsPayload?.data || []);
+
+      const localApplications = readJSON(LOCAL_APPLICATIONS_KEY, []);
+      const localSubscriptions = readJSON(LOCAL_SUBSCRIPTIONS_KEY, []);
+      const approvalMap = readSupportApprovals();
+
+      const mergedApplications = (remoteApplications.length ? remoteApplications : localApplications).map((item) => {
+        const id = String(item?.id || item?._id || '');
+        const chatApproval = approvalMap[id];
+        return {
+          ...item,
+          assignedLawyerId: item?.assignedLawyerId || item?.lawyerId || null,
+          assignedLawyerEmail: item?.assignedLawyerEmail || item?.lawyerEmail || '',
+          assignedLawyerName: item?.assignedLawyerName || item?.lawyerName || '',
+          chatApproved: typeof item?.chatApproved === 'boolean'
+            ? item.chatApproved
+            : (chatApproval ? Boolean(chatApproval.approved) : false),
+        };
+      });
+
+      const mergedSubscriptions = remoteSubscriptions.length ? remoteSubscriptions : localSubscriptions;
+
+      setApplications(mergedApplications);
+      setSubscriptions(mergedSubscriptions);
       setPlatformSettings(settingsPayload);
+
+      writeJSON(LOCAL_APPLICATIONS_KEY, mergedApplications);
+      writeJSON(LOCAL_SUBSCRIPTIONS_KEY, mergedSubscriptions);
 
       if (
         applicationsRes.status === 'rejected' &&
@@ -437,6 +481,14 @@ export default function AdminDashboard() {
       setLawyerError('Advokat ismini kiriting');
       return;
     }
+    if (!lawyerForm.email.trim()) {
+      setLawyerError('Advokat emailini kiriting');
+      return;
+    }
+    if (String(lawyerForm.loginPassword || '').trim().length < 6) {
+      setLawyerError('Login parol kamida 6 ta belgidan iborat bo‘lishi kerak');
+      return;
+    }
 
     setLawyerSaving(true);
     setLawyerError('');
@@ -453,12 +505,19 @@ export default function AdminDashboard() {
       const created = normalizeLawyer(data.lawyer || data.data || data);
       setLawyers((prev) => [created, ...prev.filter((item) => String(item.id) !== String(created.id))]);
       setLawyerForm(EMPTY_LAWYER_FORM);
-      setLawyerSuccess('Advokat muvaffaqiyatli qo\'shildi');
+      await createLawyerAccount({
+        email: created.email || lawyerForm.email,
+        password: String(lawyerForm.loginPassword || '').trim(),
+        name: created.name || lawyerForm.name,
+        lawyerId: created.id || null,
+      });
+      setLawyerSuccess('Advokat va uning kabinet login/paroli muvaffaqiyatli yaratildi');
       await pushAuditLog({
         action: 'lawyer_created',
         target: created.email || created.id || created.name,
-        detail: `${created.name} advokat qo'shildi`,
+        detail: `${created.name} advokat qo'shildi va login yaratildi`,
       });
+      await fetchData();
     } catch (err) {
       setLawyerError(safeError(err, 'Advokat qo\'shishda xatolik yuz berdi'));
     } finally {
@@ -492,13 +551,15 @@ export default function AdminDashboard() {
   const stats = useMemo(() => {
     const totalUsers = usersList.length;
     const totalAdmins = usersList.filter((u) => u.role === 'admin').length;
-    const totalClients = usersList.filter((u) => u.role !== 'admin').length;
+    const totalClients = usersList.filter((u) => u.role === 'user').length;
+    const totalLawyerAccounts = usersList.filter((u) => u.role === 'lawyer').length;
     const openConversations = conversations.filter((conv) => conv.status !== 'closed').length;
 
     return {
       totalUsers,
       totalAdmins,
       totalClients,
+      totalLawyerAccounts,
       totalLawyers: lawyers.length,
       openConversations,
     };
@@ -609,7 +670,7 @@ export default function AdminDashboard() {
 
   const funnel = useMemo(() => {
     const visitorsInterested = opsStats.todayNewUsers + conversations.length;
-    const registeredUsers = usersList.filter((u) => u.role !== 'admin').length;
+    const registeredUsers = usersList.filter((u) => u.role === 'user').length;
     const startedChats = conversations.length;
     const paidUsers = subscriptions.filter((s) => String(s.status || '').toLowerCase().includes('active')).length;
     const safePct = (a, b) => (b > 0 ? `${Math.round((a / b) * 100)}%` : '0%');
@@ -625,10 +686,25 @@ export default function AdminDashboard() {
     };
   }, [conversations.length, opsStats.todayNewUsers, subscriptions, usersList]);
 
+  const persistApplications = useCallback((next) => {
+    setApplications(next);
+    writeJSON(LOCAL_APPLICATIONS_KEY, next);
+  }, []);
+
+  const persistSubscriptions = useCallback((next) => {
+    setSubscriptions(next);
+    writeJSON(LOCAL_SUBSCRIPTIONS_KEY, next);
+  }, []);
+
+  const lawyerChatConversations = useMemo(() => (
+    conversations.filter((conv) => Boolean(conv?.requiresApproval || conv?.lawyerId))
+  ), [conversations]);
+
   const updateApplicationStatus = (id, status) => {
-    setApplications((prev) =>
-      prev.map((item) => (String(item.id || item._id) === String(id) ? { ...item, status } : item))
-    );
+    const next = applications.map((item) => (
+      String(item.id || item._id) === String(id) ? { ...item, status } : item
+    ));
+    persistApplications(next);
     setOpsNotice(`Ariza holati yangilandi: ${status}`);
     void pushAuditLog({
       action: 'application_status_changed',
@@ -637,10 +713,54 @@ export default function AdminDashboard() {
     });
   };
 
-  const updateSubscriptionStatus = (id, status) => {
-    setSubscriptions((prev) =>
-      prev.map((item) => (String(item.id || item._id) === String(id) ? { ...item, status } : item))
+  const assignLawyerToApplication = (id, lawyerIdentity) => {
+    const selected = lawyers.find(
+      (lawyer) => String(lawyer.id) === String(lawyerIdentity) || String(lawyer.email) === String(lawyerIdentity)
     );
+    const next = applications.map((item) => {
+      if (String(item.id || item._id) !== String(id)) return item;
+      return {
+        ...item,
+        status: selected ? 'assigned' : item.status,
+        assignedLawyerId: selected?.id || null,
+        assignedLawyerEmail: selected?.email || '',
+        assignedLawyerName: selected?.name || '',
+      };
+    });
+
+    persistApplications(next);
+    setOpsNotice(selected ? `${selected.name} advokatga biriktirildi` : 'Advokat biriktirish bekor qilindi');
+    void pushAuditLog({
+      action: 'application_lawyer_assigned',
+      target: String(id),
+      detail: selected
+        ? `Advokat: ${selected.name} (${selected.email || selected.id})`
+        : 'Biriktirish olib tashlandi',
+    });
+  };
+
+  const toggleApplicationChatApproval = async (application, approved) => {
+    const appId = String(application?.id || application?._id || '');
+    if (!appId) return;
+
+    const next = applications.map((item) => (
+      String(item.id || item._id) === appId ? { ...item, chatApproved: Boolean(approved) } : item
+    ));
+    persistApplications(next);
+
+    setOpsNotice(Boolean(approved) ? 'Chatga ruxsat berildi' : 'Chat ruxsati bekor qilindi');
+    await pushAuditLog({
+      action: 'application_chat_approval',
+      target: appId,
+      detail: Boolean(approved) ? 'Chatga ruxsat berildi' : 'Chat ruxsati bekor qilindi',
+    });
+  };
+
+  const updateSubscriptionStatus = (id, status) => {
+    const next = subscriptions.map((item) => (
+      String(item.id || item._id) === String(id) ? { ...item, status } : item
+    ));
+    persistSubscriptions(next);
     setOpsNotice(`Obuna holati yangilandi: ${status}`);
     void pushAuditLog({
       action: 'subscription_status_changed',
@@ -829,10 +949,11 @@ export default function AdminDashboard() {
 
             {section === 'overview' && (
               <div className="space-y-6">
-                <div className="grid sm:grid-cols-2 xl:grid-cols-5 gap-4">
+                <div className="grid sm:grid-cols-2 xl:grid-cols-6 gap-4">
                   <StatCard label="Jami user" value={stats.totalUsers} icon={Users} />
                   <StatCard label="Adminlar" value={stats.totalAdmins} icon={UserPlus} />
                   <StatCard label="Mijozlar" value={stats.totalClients} icon={UserRound} />
+                  <StatCard label="Advokat akkaunt" value={stats.totalLawyerAccounts} icon={UserSquare2} />
                   <StatCard label="Advokatlar" value={stats.totalLawyers} icon={UserSquare2} />
                   <StatCard label="Ochiq chat" value={stats.openConversations} icon={MessageCircleMore} />
                 </div>
@@ -958,7 +1079,13 @@ export default function AdminDashboard() {
                             <td className="px-3 py-3 text-slate-400">{index + 1}</td>
                             <td className="px-3 py-3 font-medium">{usr.email || '-'}</td>
                             <td className="px-3 py-3">
-                              <span className={`text-xs px-2 py-1 rounded-md font-semibold ${usr.role === 'admin' ? 'bg-blue-900/40 text-blue-300' : 'bg-slate-800 text-slate-300'}`}>
+                              <span className={`text-xs px-2 py-1 rounded-md font-semibold ${
+                                usr.role === 'admin'
+                                  ? 'bg-blue-900/40 text-blue-300'
+                                  : usr.role === 'lawyer'
+                                    ? 'bg-emerald-900/40 text-emerald-300'
+                                    : 'bg-slate-800 text-slate-300'
+                              }`}>
                                 {usr.role || 'user'}
                               </span>
                             </td>
@@ -1012,7 +1139,15 @@ export default function AdminDashboard() {
                 <div className="grid xl:grid-cols-5 gap-6">
                   <form onSubmit={handleCreateLawyer} className="xl:col-span-2 bg-slate-900 rounded-2xl border border-slate-800 p-5 space-y-3">
                     <InputDark label="Ism-familiya" value={lawyerForm.name} onChange={(v) => setLawyerForm((p) => ({ ...p, name: v }))} required />
-                    <InputDark label="Email" type="email" value={lawyerForm.email} onChange={(v) => setLawyerForm((p) => ({ ...p, email: v }))} />
+                    <InputDark label="Email (login uchun)" type="email" value={lawyerForm.email} onChange={(v) => setLawyerForm((p) => ({ ...p, email: v }))} required />
+                    <InputDark
+                      label="Kabinet paroli (min 6)"
+                      type="password"
+                      value={lawyerForm.loginPassword}
+                      onChange={(v) => setLawyerForm((p) => ({ ...p, loginPassword: v }))}
+                      minLength={6}
+                      required
+                    />
                     <InputDark label="Telefon" value={lawyerForm.phone} onChange={(v) => setLawyerForm((p) => ({ ...p, phone: v }))} />
                     <InputDark label="Telegram" value={lawyerForm.telegram} onChange={(v) => setLawyerForm((p) => ({ ...p, telegram: v }))} />
                     <InputDark label="Mutaxassislik" value={lawyerForm.specialization} onChange={(v) => setLawyerForm((p) => ({ ...p, specialization: v }))} />
@@ -1052,6 +1187,7 @@ export default function AdminDashboard() {
                               <th className="text-left px-3 pb-3">Advokat</th>
                               <th className="text-left px-3 pb-3">Mutaxassislik</th>
                               <th className="text-left px-3 pb-3">Aloqa</th>
+                              <th className="text-left px-3 pb-3">Kabinet</th>
                               <th className="text-left px-3 pb-3">Amal</th>
                             </tr>
                           </thead>
@@ -1065,6 +1201,11 @@ export default function AdminDashboard() {
                                 <td className="px-3 py-3 text-slate-300">{lawyer.specialization}</td>
                                 <td className="px-3 py-3 text-slate-400 text-xs">
                                   {lawyer.phone || lawyer.email || lawyer.telegram || '-'}
+                                </td>
+                                <td className="px-3 py-3 text-slate-300 text-xs">
+                                  {usersList.some((usr) => usr.role === 'lawyer' && String(usr.email || '').toLowerCase() === String(lawyer.email || '').toLowerCase())
+                                    ? 'Aktiv'
+                                    : 'Yaratilmagan'}
                                 </td>
                                 <td className="px-3 py-3">
                                   <button
@@ -1127,6 +1268,66 @@ export default function AdminDashboard() {
                     </ul>
                   </div>
                 </div>
+                <div className="mb-6 rounded-2xl border border-slate-800 bg-slate-900 p-4">
+                  <h3 className="font-semibold mb-3">Advokat chat ruxsatlari</h3>
+                  {lawyerChatConversations.length === 0 ? (
+                    <p className="text-sm text-slate-400">Hozircha advokatga bog‘langan chatlar yo‘q.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="text-slate-400 border-b border-slate-800">
+                          <tr>
+                            <th className="text-left px-2 py-2">Suhbat</th>
+                            <th className="text-left px-2 py-2">Advokat</th>
+                            <th className="text-left px-2 py-2">Ruxsat</th>
+                            <th className="text-left px-2 py-2">Amal</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lawyerChatConversations.map((conv) => (
+                            <tr key={conv.id} className="border-b border-slate-900/70">
+                              <td className="px-2 py-2 text-slate-200">{conv.clientName || conv.clientEmail || conv.id}</td>
+                              <td className="px-2 py-2 text-slate-300">{conv.lawyerId || conv.peerId || '-'}</td>
+                              <td className="px-2 py-2">
+                                <span className={`text-xs font-semibold px-2 py-1 rounded-lg ${
+                                  conv.chatApproved ? 'bg-emerald-900/40 text-emerald-300' : 'bg-amber-900/40 text-amber-300'
+                                }`}>
+                                  {conv.chatApproved ? 'Ruxsat berilgan' : 'Kutilmoqda'}
+                                </span>
+                              </td>
+                              <td className="px-2 py-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    void (async () => {
+                                      try {
+                                        await setSupportConversationApproval(conv.id, !conv.chatApproved, {
+                                          lawyerId: conv.lawyerId || conv.peerId || null,
+                                        });
+                                        setOpsNotice(!conv.chatApproved ? 'Chatga ruxsat berildi' : 'Chat ruxsati bekor qilindi');
+                                        await pushAuditLog({
+                                          action: 'chat_approval_changed',
+                                          target: String(conv.id),
+                                          detail: !conv.chatApproved ? 'Ruxsat berildi' : 'Ruxsat bekor qilindi',
+                                        });
+                                        await fetchData();
+                                      } catch (err) {
+                                        setChatError(safeError(err, 'Chat ruxsatini yangilab bo‘lmadi'));
+                                      }
+                                    })();
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs hover:bg-slate-800"
+                                >
+                                  {conv.chatApproved ? 'Ruxsatni olish' : 'Ruxsat berish'}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
                 <SupportChat embedded />
               </Panel>
             )}
@@ -1176,6 +1377,8 @@ export default function AdminDashboard() {
                           <th className="text-left px-3 py-2.5">#</th>
                           <th className="text-left px-3 py-2.5">Sarlavha</th>
                           <th className="text-left px-3 py-2.5">Mijoz</th>
+                          <th className="text-left px-3 py-2.5">Advokat</th>
+                          <th className="text-left px-3 py-2.5">Chat ruxsati</th>
                           <th className="text-left px-3 py-2.5">Holat</th>
                         </tr>
                       </thead>
@@ -1185,6 +1388,32 @@ export default function AdminDashboard() {
                             <td className="px-3 py-2.5 text-slate-400">{idx + 1}</td>
                             <td className="px-3 py-2.5">{item.title || item.subject || item.name || 'Nomsiz ariza'}</td>
                             <td className="px-3 py-2.5 text-slate-300">{item.userEmail || item.email || item.clientEmail || '-'}</td>
+                            <td className="px-3 py-2.5">
+                              <select
+                                className="text-xs rounded-md bg-slate-800 text-slate-200 border border-slate-700 px-2 py-1 min-w-[180px]"
+                                value={item.assignedLawyerId || item.assignedLawyerEmail || ''}
+                                onChange={(event) => assignLawyerToApplication(item.id || item._id, event.target.value)}
+                              >
+                                <option value="">Biriktirilmagan</option>
+                                {lawyers.map((lawyer) => (
+                                  <option key={String(lawyer.id)} value={lawyer.id}>
+                                    {lawyer.name} ({lawyer.email || lawyer.id})
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <select
+                                className="text-xs rounded-md bg-slate-800 text-slate-200 border border-slate-700 px-2 py-1"
+                                value={item.chatApproved ? 'approved' : 'pending'}
+                                onChange={(event) => {
+                                  void toggleApplicationChatApproval(item, event.target.value === 'approved');
+                                }}
+                              >
+                                <option value="pending">Kutilmoqda</option>
+                                <option value="approved">Ruxsat berilgan</option>
+                              </select>
+                            </td>
                             <td className="px-3 py-2.5">
                               <select
                                 className="text-xs rounded-md bg-slate-800 text-slate-200 border border-slate-700 px-2 py-1"

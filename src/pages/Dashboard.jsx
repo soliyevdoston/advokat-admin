@@ -11,7 +11,7 @@ import {
   RefreshCw,
   ShieldCheck,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Button from '../components/ui/Button';
 import { openPaymentGateway } from '../utils/paymentGate';
@@ -189,6 +189,11 @@ export default function Dashboard() {
       status: 'new',
       createdAt: new Date().toISOString(),
       userEmail: user?.email || '',
+      userId: user?.id || null,
+      assignedLawyerId: null,
+      assignedLawyerEmail: '',
+      assignedLawyerName: '',
+      chatApproved: false,
     };
 
     try {
@@ -254,6 +259,10 @@ export default function Dashboard() {
         <p>Loading...</p>
       </div>
     );
+  }
+
+  if (user.role === 'lawyer') {
+    return <Navigate to="/lawyer" replace />;
   }
 
   return (
@@ -335,6 +344,9 @@ export default function Dashboard() {
                         <li key={String(item.id || idx)} className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
                           <p className="font-medium text-slate-900 dark:text-white">{item.title || item.subject || 'Nomsiz ariza'}</p>
                           <p className="text-xs text-slate-500 mt-1">{item.status || 'new'}</p>
+                          {item.assignedLawyerName && (
+                            <p className="text-xs text-slate-500 mt-1">Advokat: {item.assignedLawyerName}</p>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -396,8 +408,16 @@ export default function Dashboard() {
                         <div key={String(item.id || item._id || idx)} className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
                           <p className="font-medium text-slate-900 dark:text-white">{item.title || item.subject || 'Nomsiz ariza'}</p>
                           <p className="text-xs text-slate-500 mt-1">{item.description || item.text || '-'}</p>
+                          {item.assignedLawyerName && (
+                            <p className="text-xs text-slate-500 mt-1">Biriktirilgan advokat: {item.assignedLawyerName}</p>
+                          )}
                           <div className="mt-2 inline-flex text-xs px-2 py-1 rounded-lg bg-amber-100/80 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
                             {item.status || 'new'}
+                          </div>
+                          <div className={`mt-2 inline-flex text-xs px-2 py-1 rounded-lg ${
+                            item.chatApproved ? 'bg-emerald-100/80 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                          }`}>
+                            {item.chatApproved ? 'Chat ruxsati berilgan' : 'Chat admin tasdig‘ini kutmoqda'}
                           </div>
                         </div>
                       ))}

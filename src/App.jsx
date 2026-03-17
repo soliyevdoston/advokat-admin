@@ -14,6 +14,7 @@ import Contact from './pages/Contact';
 import ChatPage from './pages/Chat';
 import Auth from './pages/Auth';
 import Dashboard from './pages/Dashboard';
+import LawyerDashboard from './pages/LawyerDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminLogin from './pages/AdminLogin';
 import ConstitutionPage from './pages/ConstitutionPage';
@@ -81,7 +82,16 @@ function AppContent() {
             path="/dashboard"
             element={
               <PrivateRoute>
-                <Dashboard />
+                <RoleDashboard />
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/lawyer"
+            element={
+              <PrivateRoute requireRole="lawyer" unauthorizedTo="/dashboard">
+                <LawyerDashboard />
               </PrivateRoute>
             }
           />
@@ -113,6 +123,20 @@ function AdminPortal() {
   }
 
   return <AdminLogin />;
+}
+
+function RoleDashboard() {
+  const { user } = useAuth();
+
+  if (user?.role === 'lawyer') {
+    return <Navigate to="/lawyer" replace />;
+  }
+
+  if (user?.role === 'admin') {
+    return <Navigate to="/admin" replace />;
+  }
+
+  return <Dashboard />;
 }
 
 export default App;

@@ -22,7 +22,7 @@ export default function Auth() {
   const resolveRedirect = (role) => {
     const from = location.state?.from?.pathname;
     if (from && from !== '/auth') return from;
-    return role === 'admin' ? '/admin' : '/dashboard';
+    return role === 'admin' ? '/admin' : role === 'lawyer' ? '/lawyer' : '/dashboard';
   };
 
   const handleLogin = async (event) => {

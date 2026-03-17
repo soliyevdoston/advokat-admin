@@ -49,6 +49,7 @@ export default function Navbar() {
     { name: t('nav.lawyers'), path: '/lawyers' },
     { name: t('nav.about'), path: '/about' },
   ];
+  const dashboardPath = user?.role === 'admin' ? '/admin' : user?.role === 'lawyer' ? '/lawyer' : '/dashboard';
 
   if (user && user.role === 'admin') {
     navLinks.push({ name: 'Admin Panel', path: '/admin' });
@@ -111,7 +112,7 @@ export default function Navbar() {
               </div>
 
               {user ? (
-                <Link to={isAdmin ? '/admin' : '/dashboard'}>
+                <Link to={dashboardPath}>
                   <Button variant="outline" className={`border-transparent px-4 gap-2 ${isHome && !scrolled ? 'text-white hover:bg-white/10' : 'text-[var(--color-primary)] dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20'}`}>
                     <User size={20} />
                     {t('nav.dashboard')}
@@ -196,7 +197,7 @@ export default function Navbar() {
               ))}
               <div className="pt-4 flex flex-col gap-3">
                 {user ? (
-                  <Link to={isAdmin ? '/admin' : '/dashboard'} onClick={() => setIsOpen(false)}>
+                  <Link to={dashboardPath} onClick={() => setIsOpen(false)}>
                     <Button className="w-full btn-primary justify-center gap-2">
                        <User size={20} /> {t('nav.dashboard')}
                     </Button>
