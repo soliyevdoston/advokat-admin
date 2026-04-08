@@ -7,6 +7,7 @@ export const useAuth = () => useContext(AuthContext);
 
 const TOKEN_KEY = 'advokat_auth_token';
 const USER_KEY = 'advokat_user';
+const VERIFY_AUTH_TOKEN_KEY = 'advokat_verify_auth_token';
 const LOCAL_USERS_KEY = 'advokat_local_users_v1';
 const SUPPORT_CONVERSATIONS_KEY = 'advokat_support_conversations_v1';
 const SUPPORT_MESSAGES_KEY = 'advokat_support_messages_v1';
@@ -41,6 +42,15 @@ const normalizeUser = (rawUser = {}) => {
 };
 
 const getToken = () => localStorage.getItem(TOKEN_KEY) || null;
+const getVerifyAuthToken = () => localStorage.getItem(VERIFY_AUTH_TOKEN_KEY) || null;
+const saveVerifyAuthToken = (token) => {
+  const value = String(token || '').trim();
+  if (!value) return;
+  localStorage.setItem(VERIFY_AUTH_TOKEN_KEY, value);
+};
+const clearVerifyAuthToken = () => {
+  localStorage.removeItem(VERIFY_AUTH_TOKEN_KEY);
+};
 const getUser = () => {
   const raw = readJSON(USER_KEY, null);
   return raw ? normalizeUser(raw) : null;
@@ -164,7 +174,7 @@ const CHAT_BY_ID_ENDPOINTS = (conversationId) => {
 const LOGIN_ENDPOINTS = ['/user/auth/login', '/auth/login', '/login', '/users/login'];
 const SEND_CODE_ENDPOINTS = ['/user/auth/send-code', '/auth/send-code', '/send-code', '/users/send-code'];
 const VERIFY_CODE_ENDPOINTS = ['/user/auth/verify-code', '/auth/verify-code', '/verify-code', '/users/verify-code'];
-const REGISTER_ENDPOINTS = ['/user/auth/register', '/auth/register', '/users/register'];
+const REGISTER_ENDPOINTS = ['/user/auth/register'];
 const LOGOUT_ENDPOINTS = ['/user/auth/logout', '/auth/logout', '/logout'];
 const CREATE_ADMIN_ENDPOINTS = ['/admin/auth/make', '/users/create_admin', '/users/create-admin', '/create_admin'];
 const CREATE_LAWYER_ENDPOINTS = ['/users/create_lawyer', '/users/create-lawyer', '/create_lawyer'];
@@ -497,6 +507,7 @@ export const AuthProvider = ({ children }) => {
   const setSession = (token, userData, password = null) => {
     const normalized = normalizeUser(userData);
     saveSession(token, normalized);
+    clearVerifyAuthToken();
     setAuthToken(token);
     setUser(normalized);
     if (USE_LOCAL_FALLBACK) {
@@ -531,21 +542,33 @@ export const AuthProvider = ({ children }) => {
   };
 
   const register = async (email, password) => {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const normalizedPassword = String(password || '').trim();
+
+    try {
+      await sendCode(normalizedEmail, normalizedPassword);
+      return { requiresVerification: true };
+    } catch {
+      // continue to classic register fallback
+    }
+
     try {
       const data = await apiRequestAny(REGISTER_ENDPOINTS, {
         method: 'POST',
-        body: { email, password },
+        body: { email: normalizedEmail, password: normalizedPassword },
       });
 
       const token = data.token || data.accessToken;
       const userData = data.user || data.data?.user;
 
       if (token && userData) {
-        const session = setSession(token, userData, password);
+        saveVerifyAuthToken(data.tempToken);
+        const session = setSession(token, userData, normalizedPassword);
         return { ...session, requiresVerification: false };
       }
 
       if (data.requiresVerification || data.success || data.tempToken) {
+        saveVerifyAuthToken(data.tempToken || data.token || data.accessToken);
         return { requiresVerification: true };
       }
 
@@ -553,8 +576,8 @@ export const AuthProvider = ({ children }) => {
         throw new Error('Backend register javobi noto‘g‘ri formatda qaytdi');
       }
 
-      const local = localRegister(email, password);
-      const session = setSession(local.token, local.user, password);
+      const local = localRegister(normalizedEmail, normalizedPassword);
+      const session = setSession(local.token, local.user, normalizedPassword);
       return { ...session, requiresVerification: false, localOnly: true };
     } catch (err) {
       // Agar backend email+kod flow ishlatsa
@@ -562,7 +585,7 @@ export const AuthProvider = ({ children }) => {
 
       if (!USE_LOCAL_FALLBACK) {
         try {
-          await sendCode(email, password);
+          await sendCode(normalizedEmail, normalizedPassword);
           return { requiresVerification: true };
         } catch {
           throw err;
@@ -570,51 +593,57 @@ export const AuthProvider = ({ children }) => {
       }
 
       try {
-        await sendCode(email, password);
+        await sendCode(normalizedEmail, normalizedPassword);
         return { requiresVerification: true };
       } catch {
-        const local = localRegister(email, password);
-        const session = setSession(local.token, local.user, password);
+        const local = localRegister(normalizedEmail, normalizedPassword);
+        const session = setSession(local.token, local.user, normalizedPassword);
         return { ...session, requiresVerification: false, localOnly: true };
       }
     }
   };
 
   const sendCode = async (email, password) => {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
     const data = await apiRequestAny(SEND_CODE_ENDPOINTS, {
       method: 'POST',
-      body: { email, password },
+      body: { email: normalizedEmail, password },
     });
 
-    if (data.token) {
-      localStorage.setItem(TOKEN_KEY, data.token);
-      setAuthToken(data.token);
-    }
+    saveVerifyAuthToken(data.token || data.authToken || data.tempToken);
 
     return data;
   };
 
   const verifyCode = async (email, code) => {
-    const token = getToken();
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const normalizedCode = String(code || '').trim();
+    const token = getVerifyAuthToken() || getToken();
 
     if (!token) {
       throw new Error("Token topilmadi. Iltimos, qayta urinib ko'ring");
+    }
+    if (!normalizedCode) {
+      throw new Error("Tasdiqlash kodini kiriting");
     }
 
     const data = await apiRequestAny(VERIFY_CODE_ENDPOINTS, {
       method: 'POST',
       body: {
-        email,
+        email: normalizedEmail,
         authToken: token,
         token,
-        code,
+        code: normalizedCode,
+        otp: normalizedCode,
       },
     });
 
     const finalToken = data.token || data.accessToken || token;
     const userData = data.user || data.data?.user || data;
 
-    return setSession(finalToken, userData);
+    const session = setSession(finalToken, userData);
+    clearVerifyAuthToken();
+    return session;
   };
 
   const logout = async () => {
@@ -626,12 +655,14 @@ export const AuthProvider = ({ children }) => {
     }
 
     clearSession();
+    clearVerifyAuthToken();
     setAuthToken(null);
     setUser(null);
   };
 
   const setManualToken = (token, userData = null) => {
     localStorage.setItem(TOKEN_KEY, token);
+    clearVerifyAuthToken();
     setAuthToken(token);
     if (userData) {
       const normalized = normalizeUser(userData);
