@@ -30,6 +30,7 @@ import {
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import SupportChat from '../components/chat/SupportChat';
+import '../styles/panels-minimal.css';
 
 const NAV_ITEMS = [
   { key: 'overview', label: 'Umumiy', icon: ShieldCheck },
@@ -110,6 +111,13 @@ const toTimestamp = (value) => {
 
 const LOCAL_APPLICATIONS_KEY = 'legallink_user_applications_v1';
 const LOCAL_SUBSCRIPTIONS_KEY = 'legallink_user_subscriptions_v1';
+const LAWYER_ENDPOINTS = ['/advokat/lawyers', '/advokat/list', '/advokat', '/lawyers', '/api/lawyers'];
+const HEALTH_ENDPOINTS = ['/health', '/ping'];
+const NEWS_ENDPOINTS = ['/list/news', '/list', '/list%20/news', '/list%20', '/news', '/api/news'];
+const CONSTITUTION_SECTIONS_ENDPOINTS = ['/user/constitutsiya/sections', '/constitution/sections', '/api/constitution/sections'];
+const CONSTITUTION_ARTICLES_ENDPOINTS = ['/user/constitutsiya', '/constitution', '/api/constitution'];
+const ADMIN_APPLICATION_ENDPOINTS = ['/admin/ariza/requests', '/applications', '/api/applications', '/documents', '/api/documents', '/requests', '/api/requests'];
+const ADMIN_SUBSCRIPTION_ENDPOINTS = ['/subscriptions', '/api/subscriptions', '/users/subscriptions', '/billing/subscriptions'];
 
 const readJSON = (key, fallback) => {
   try {
@@ -290,14 +298,14 @@ export default function AdminDashboard() {
   );
 
   const loadLawyers = useCallback(async () => {
-    const data = await requestAny(['/lawyers', '/api/lawyers'], { method: 'GET', auth: false });
+    const data = await requestAny(LAWYER_ENDPOINTS, { method: 'GET', auth: false });
     const raw = Array.isArray(data) ? data : (data.lawyers || data.data || data.items || []);
     setLawyers(toArray(raw).map(normalizeLawyer));
   }, [requestAny]);
 
   const loadServerStatus = useCallback(async () => {
     try {
-      await apiFetch('/ping', { auth: false });
+      await requestAny(HEALTH_ENDPOINTS, { method: 'GET', auth: false });
       setServerOnline(true);
     } catch {
       setServerOnline(false);
@@ -309,9 +317,9 @@ export default function AdminDashboard() {
 
     try {
       const [sectionsRes, articlesRes, newsRes, docsRes] = await Promise.allSettled([
-        apiFetch('/constitution/sections', { auth: false }),
-        apiFetch('/constitution', { auth: false }),
-        requestAny(['/news', '/api/news'], { method: 'GET', auth: false }),
+        requestAny(CONSTITUTION_SECTIONS_ENDPOINTS, { method: 'GET', auth: false }),
+        requestAny(CONSTITUTION_ARTICLES_ENDPOINTS, { method: 'GET', auth: false }),
+        requestAny(NEWS_ENDPOINTS, { method: 'GET', auth: false }),
         requestAny(['/documents', '/api/documents'], { method: 'GET', auth: true }),
       ]);
 
@@ -344,11 +352,11 @@ export default function AdminDashboard() {
     try {
       const [applicationsRes, subscriptionsRes, settingsRes] = await Promise.allSettled([
         requestAny(
-          ['/applications', '/api/applications', '/documents', '/api/documents', '/requests', '/api/requests'],
+          ADMIN_APPLICATION_ENDPOINTS,
           { method: 'GET', auth: true }
         ),
         requestAny(
-          ['/subscriptions', '/api/subscriptions', '/users/subscriptions', '/billing/subscriptions'],
+          ADMIN_SUBSCRIPTION_ENDPOINTS,
           { method: 'GET', auth: true }
         ),
         requestAny(['/settings', '/api/settings', '/config', '/api/config'], { method: 'GET', auth: true }),
@@ -496,7 +504,7 @@ export default function AdminDashboard() {
 
     try {
       const payload = buildLawyerPayload();
-      const data = await requestAny(['/lawyers', '/api/lawyers'], {
+      const data = await requestAny(LAWYER_ENDPOINTS, {
         method: 'POST',
         body: payload,
         auth: true,
@@ -532,7 +540,7 @@ export default function AdminDashboard() {
     setLawyerSuccess('');
 
     try {
-      await requestAny([`/lawyers/${id}`, `/api/lawyers/${id}`], {
+      await requestAny([`/advokat/lawyers/${id}`, `/advokat/${id}`, `/lawyers/${id}`, `/api/lawyers/${id}`], {
         method: 'DELETE',
         auth: true,
       });
@@ -853,7 +861,7 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div className="admin-dashboard-shell min-h-screen bg-slate-950 text-white">
+    <div className="admin-dashboard-shell admin-panel-minimal min-h-screen bg-slate-950 text-slate-900">
       <div className="max-w-[1440px] mx-auto px-4 md:px-6 lg:px-8 py-6 md:py-8">
         <div className="flex flex-col lg:flex-row gap-6">
           <aside className="lg:w-72 shrink-0">
@@ -1368,7 +1376,7 @@ export default function AdminDashboard() {
                 {opsLoading ? (
                   <LoadingBox text="Arizalar yuklanmoqda..." />
                 ) : applications.length === 0 ? (
-                  <EmptyBox text="Arizalar topilmadi. Endpoint: /applications yoki /documents" dark />
+                  <EmptyBox text="Arizalar topilmadi. Endpoint: /admin/ariza/requests yoki /user/ariza/my" dark />
                 ) : (
                   <div className="overflow-x-auto rounded-2xl border border-slate-800">
                     <table className="w-full text-sm">
@@ -1582,7 +1590,7 @@ export default function AdminDashboard() {
 
 function Panel({ title, subtitle, children }) {
   return (
-    <div className="bg-slate-950 border border-slate-800 rounded-3xl p-5 md:p-6">
+    <div className="bg-slate-950/90 border border-slate-800 rounded-3xl p-5 md:p-6 shadow-[0_20px_48px_-30px_rgba(0,0,0,0.85)]">
       <div className="mb-5">
         <h2 className="text-xl md:text-2xl font-bold">{title}</h2>
         {subtitle && <p className="text-sm text-slate-400 mt-1">{subtitle}</p>}
@@ -1594,7 +1602,7 @@ function Panel({ title, subtitle, children }) {
 
 function StatCard({ label, value, icon: Icon }) {
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+    <div className="bg-slate-900/95 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 transition-colors">
       <div className="flex items-center justify-between mb-3">
         <p className="text-sm text-slate-400">{label}</p>
         <div className="w-9 h-9 rounded-lg bg-blue-900/30 text-blue-300 flex items-center justify-center">
@@ -1612,7 +1620,7 @@ function QuickLinkCard({ title, desc, to, onClick }) {
       <button
         type="button"
         onClick={onClick}
-        className="text-left rounded-2xl border border-slate-800 bg-slate-900 p-4 hover:bg-slate-800 transition-colors"
+        className="text-left rounded-2xl border border-slate-800 bg-slate-900 p-4 hover:bg-slate-800 hover:-translate-y-0.5 transition-all"
       >
         <p className="font-semibold mb-1">{title}</p>
         <p className="text-xs text-slate-400">{desc}</p>
@@ -1621,7 +1629,7 @@ function QuickLinkCard({ title, desc, to, onClick }) {
   }
 
   return (
-    <Link to={to} className="rounded-2xl border border-slate-800 bg-slate-900 p-4 hover:bg-slate-800 transition-colors block">
+    <Link to={to} className="rounded-2xl border border-slate-800 bg-slate-900 p-4 hover:bg-slate-800 hover:-translate-y-0.5 transition-all block">
       <p className="font-semibold mb-1">{title}</p>
       <p className="text-xs text-slate-400">{desc}</p>
     </Link>

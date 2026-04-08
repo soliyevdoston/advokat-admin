@@ -10,10 +10,10 @@ const MotionDiv = motion.div;
 
 // Chat turlariga mos endpoint
 const CHAT_ENDPOINTS = {
-  ai: '/chat/ai',
-  document: '/chat/ai',
-  expert: '/chat/support',
-  lawyer: '/chat/support',
+  ai: ['/user/chats/send', '/chat/ai'],
+  document: ['/user/chats/send', '/chat/ai'],
+  expert: ['/user/chats/send', '/chat/support'],
+  lawyer: ['/user/chats/send', '/chat/support'],
 };
 
 export default function ChatInterface({ title, subtitle, type = 'ai', initialMessage }) {
@@ -53,7 +53,7 @@ export default function ChatInterface({ title, subtitle, type = 'ai', initialMes
 
   // Backend ga so'rov yuborish
   const fetchBotResponse = async (userText) => {
-    const endpoint = CHAT_ENDPOINTS[type] || '/chat/ai';
+    const endpoints = CHAT_ENDPOINTS[type] || CHAT_ENDPOINTS.ai;
 
     const headers = {
       'Content-Type': 'application/json',
@@ -70,23 +70,42 @@ export default function ChatInterface({ title, subtitle, type = 'ai', initialMes
       content: m.text,
     }));
 
-    const res = await fetch(buildApiUrl(endpoint), {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        message: userText,
-        history,
-        type,
-        userId: user?.id || null,
-      }),
-    });
+    let data = null;
+    let lastError = null;
 
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.message || `Server xatosi: ${res.status}`);
+    for (const endpoint of endpoints) {
+      try {
+        const res = await fetch(buildApiUrl(endpoint), {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            message: userText,
+            text: userText,
+            history,
+            type,
+            userId: user?.id || null,
+          }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const err = new Error(errData.message || `Server xatosi: ${res.status}`);
+          err.status = res.status;
+          throw err;
+        }
+
+        data = await res.json();
+        break;
+      } catch (err) {
+        lastError = err;
+        if (err?.status === 404 || err?.status === 405) continue;
+        throw err;
+      }
     }
 
-    const data = await res.json();
+    if (!data) {
+      throw lastError || new Error('Chat endpoint topilmadi');
+    }
 
     return {
       text: data.reply || data.message || data.response || "Javob olinmadi.",

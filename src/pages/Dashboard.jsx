@@ -18,6 +18,8 @@ import { openPaymentGateway } from '../utils/paymentGate';
 
 const LOCAL_APPLICATIONS_KEY = 'legallink_user_applications_v1';
 const LOCAL_SUBSCRIPTIONS_KEY = 'legallink_user_subscriptions_v1';
+const USER_APPLICATION_LIST_ENDPOINTS = ['/user/ariza/my', '/applications', '/documents', '/requests', '/api/applications'];
+const USER_APPLICATION_CREATE_ENDPOINTS = ['/user/ariza', '/applications', '/requests', '/documents', '/api/applications'];
 
 const TAB_ITEMS = [
   { key: 'overview', label: 'Umumiy' },
@@ -101,7 +103,7 @@ export default function Dashboard() {
 
     try {
       const [appsRes, subRes, chatsRes] = await Promise.allSettled([
-        apiRequest(['/applications', '/documents', '/requests', '/api/applications'], { method: 'GET' }),
+        apiRequest(USER_APPLICATION_LIST_ENDPOINTS, { method: 'GET' }),
         apiRequest(['/subscriptions', '/users/subscriptions', '/billing/subscriptions', '/api/subscriptions'], { method: 'GET' }),
         listSupportConversations(),
       ]);
@@ -110,7 +112,7 @@ export default function Dashboard() {
         const payload = appsRes.value;
         const appList = toArray(payload).length
           ? toArray(payload)
-          : (payload?.applications || payload?.documents || payload?.items || payload?.data || []);
+          : (payload?.applications || payload?.requests || payload?.documents || payload?.items || payload?.data || []);
         setApplications(appList);
         saveJSON(LOCAL_APPLICATIONS_KEY, appList);
       }
@@ -198,7 +200,7 @@ export default function Dashboard() {
 
     try {
       const data = await apiRequest(
-        ['/applications', '/requests', '/documents', '/api/applications'],
+        USER_APPLICATION_CREATE_ENDPOINTS,
         { method: 'POST', body: payload }
       );
 

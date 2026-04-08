@@ -150,14 +150,25 @@ const normalizeMessage = (msg = {}) => ({
   createdAt: msg.createdAt || msg.created_at || new Date().toISOString(),
 });
 
-const CHAT_ENDPOINT = '/chats';
-const LOGIN_ENDPOINTS = ['/auth/login', '/login', '/users/login'];
-const SEND_CODE_ENDPOINTS = ['/auth/send-code', '/send-code', '/users/send-code'];
-const VERIFY_CODE_ENDPOINTS = ['/auth/verify-code', '/verify-code', '/users/verify-code'];
-const REGISTER_ENDPOINTS = ['/auth/register', '/users/register'];
-const CREATE_ADMIN_ENDPOINTS = ['/users/create_admin', '/users/create-admin', '/create_admin'];
+const CHAT_LIST_ENDPOINTS = ['/user/chats', '/chats'];
+const CHAT_SEND_ENDPOINTS = ['/user/chats/send', '/chats'];
+const CHAT_BY_ID_ENDPOINTS = (conversationId) => {
+  const id = encodeURIComponent(String(conversationId || '').trim());
+  if (!id) return CHAT_LIST_ENDPOINTS;
+  return [
+    `/user/chats/${id}`,
+    `/chats/${id}`,
+    ...CHAT_LIST_ENDPOINTS,
+  ];
+};
+const LOGIN_ENDPOINTS = ['/user/auth/login', '/auth/login', '/login', '/users/login'];
+const SEND_CODE_ENDPOINTS = ['/user/auth/send-code', '/auth/send-code', '/send-code', '/users/send-code'];
+const VERIFY_CODE_ENDPOINTS = ['/user/auth/verify-code', '/auth/verify-code', '/verify-code', '/users/verify-code'];
+const REGISTER_ENDPOINTS = ['/user/auth/register', '/auth/register', '/users/register'];
+const LOGOUT_ENDPOINTS = ['/user/auth/logout', '/auth/logout', '/logout'];
+const CREATE_ADMIN_ENDPOINTS = ['/admin/auth/make', '/users/create_admin', '/users/create-admin', '/create_admin'];
 const CREATE_LAWYER_ENDPOINTS = ['/users/create_lawyer', '/users/create-lawyer', '/create_lawyer'];
-const USERS_ENDPOINTS = ['/users/', '/users', '/auth/users'];
+const USERS_ENDPOINTS = ['/admin/user/users/search?q=@', '/users/', '/users', '/auth/users'];
 
 const normalizeParty = (value) => {
   const raw = String(value ?? '').trim();
@@ -312,6 +323,7 @@ const buildConversationsFromChats = (rows, currentUser) => {
 const seedLocalAdmin = () => {
   const users = loadLocalUsers();
   const hasAdmin = users.some((u) => u.role === 'admin');
+  const hasLawyer = users.some((u) => u.role === 'lawyer');
 
   if (!hasAdmin) {
     users.push({
@@ -323,8 +335,22 @@ const seedLocalAdmin = () => {
       created_at: new Date().toISOString(),
       source: 'local',
     });
-    saveLocalUsers(users);
   }
+
+  if (!hasLawyer) {
+    users.push({
+      id: 'local_lawyer_1',
+      name: 'Test Advokat',
+      email: 'lawyer@legallink.uz',
+      password: 'lawyer12345',
+      role: 'lawyer',
+      lawyerId: '1',
+      created_at: new Date().toISOString(),
+      source: 'local',
+    });
+  }
+
+  saveLocalUsers(users);
 };
 
 const rememberUserForLocalFeatures = (user, password = null) => {
@@ -591,7 +617,14 @@ export const AuthProvider = ({ children }) => {
     return setSession(finalToken, userData);
   };
 
-  const logout = () => {
+  const logout = async () => {
+    if (authToken) {
+      void apiRequestAny(LOGOUT_ENDPOINTS, {
+        method: 'POST',
+        token: authToken,
+      }).catch(() => {});
+    }
+
     clearSession();
     setAuthToken(null);
     setUser(null);
@@ -743,7 +776,7 @@ export const AuthProvider = ({ children }) => {
     if (!user) throw new Error('Avval tizimga kiring');
 
     try {
-      const data = await apiRequest(CHAT_ENDPOINT, {
+      const data = await apiRequestAny(CHAT_LIST_ENDPOINTS, {
         method: 'GET',
         token: authToken,
       });
@@ -795,7 +828,10 @@ export const AuthProvider = ({ children }) => {
     if (!conversationId) return [];
 
     try {
-      const data = await apiRequest(CHAT_ENDPOINT, { method: 'GET', token: authToken });
+      const data = await apiRequestAny(CHAT_BY_ID_ENDPOINTS(conversationId), {
+        method: 'GET',
+        token: authToken,
+      });
       const rows = mapChatRows(data);
       const filtered = rows
         .filter((row) => makeConversationId(row.sender, row.receiver) === String(conversationId))
@@ -848,7 +884,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-      const data = await apiRequest(CHAT_ENDPOINT, {
+      const data = await apiRequestAny(CHAT_SEND_ENDPOINTS, {
         method: 'POST',
         token: authToken,
         body: payload,
